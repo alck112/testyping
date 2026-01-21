@@ -1,64 +1,30 @@
-name: build-windows-dist
+- name: Build CandidateUI (diag + binlog)
+  shell: pwsh
+  run: |
+    dotnet --info
+    dotnet build CandidateUI/ScjWin11UI.csproj -c Release -v diag -bl:winui.binlog
 
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
+- name: Dump XAML compiler outputs if present
+  if: failure()
+  shell: pwsh
+  run: |
+    $p = "CandidateUI\obj\Release\net8.0-windows10.0.19041.0"
+    Write-Host "Listing $p"
+    if (Test-Path $p) { Get-ChildItem $p -Recurse | Select-Object FullName | Out-Host } else { Write-Host "No obj folder found" }
+    $out = Join-Path $p "output.json"
+    if (Test-Path $out) {
+      Write-Host "==== output.json (last 200 lines) ===="
+      Get-Content $out -Tail 200 | Out-Host
+    } else {
+      Write-Host "output.json not found"
+    }
 
-jobs:
-  build:
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-
-      - name: Build Candidate UI (WinUI 3)
-        run: dotnet build CandidateUI/ScjWin11UI.csproj -c Release -v minimal
-
-      - name: Build Launcher
-        run: dotnet build Launcher/ScjLauncher.csproj -c Release -v minimal
-
-      - name: Build Uninstaller
-        run: dotnet build Uninstaller/ScjUninstall.csproj -c Release -v minimal
-
-      - name: Build TSF Engine (CMake x64 Release)
-        shell: pwsh
-        run: |
-          cmake -S Engine/ScjTsfEngine -B Engine/ScjTsfEngine/build -A x64
-          cmake --build Engine/ScjTsfEngine/build --config Release
-
-      - name: Pack dist
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-
-          function Pick($pattern) {
-            $items = Get-ChildItem -Recurse -Filter $pattern -ErrorAction SilentlyContinue |
-              Where-Object { $_.FullName -match "\\Release\\" -or $_.FullName -match "\\bin\\Release\\" } |
-              Sort-Object FullName
-            if (-not $items) { throw "Missing output: $pattern" }
-            return ($items | Select-Object -Last 1).FullName
-          }
-
-          Copy-Item (Pick "ScjWin11UI.exe")   dist\ -Force
-          Copy-Item (Pick "ScjLauncher.exe")  dist\ -Force
-          Copy-Item (Pick "ScjUninstall.exe") dist\ -Force
-          Copy-Item (Pick "ScjTsfEngine.dll") dist\ -Force
-
-          Copy-Item "Engine\data\scj6.cin" dist\ -Force
-          if (Test-Path "PORTABLE_README.txt") { Copy-Item "PORTABLE_README.txt" dist\ -Force }
-
-          "Built by GitHub Actions" | Out-File -Encoding utf8 dist\README.txt
-          Get-ChildItem dist | Format-Table Name, Length
-
-      - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: scj-dist
-          path: dist
+- name: Upload binlog
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: winui-build-logs
+    path: |
+      winui.binlog
+      CandidateUI/obj/**/output.json
+      CandidateUI/obj/**/input.json
