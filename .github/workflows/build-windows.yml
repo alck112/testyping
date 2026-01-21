@@ -1,0 +1,83 @@
+name: build-windows-dist
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # .NET 8 for WinUI 3 + launcher/uninstaller
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # MSBuild for vcxproj
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore .NET projects
+        run: |
+          dotnet restore CandidateUI/ScjWin11UI.csproj
+          dotnet restore Launcher/ScjLauncher.csproj
+          dotnet restore Uninstaller/ScjUninstall.csproj
+
+      - name: Build WinUI 3 Candidate UI (Release)
+        run: dotnet build CandidateUI/ScjWin11UI.csproj -c Release -v minimal
+
+      - name: Build Launcher (Release)
+        run: dotnet build Launcher/ScjLauncher.csproj -c Release -v minimal
+
+      - name: Build Uninstaller (Release)
+        run: dotnet build Uninstaller/ScjUninstall.csproj -c Release -v minimal
+
+      - name: Build TSF Engine (Release|x64)
+        run: msbuild Engine/ScjTsfEngine/ScjTsfEngine.vcxproj /m /p:Configuration=Release /p:Platform=x64
+
+      - name: Pack dist
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+
+          # Find outputs robustly
+          $engine = Get-ChildItem -Recurse -Filter ScjTsfEngine.dll | Where-Object FullName -Match "\\Release\\" | Select-Object -First 1
+          $ui     = Get-ChildItem -Recurse -Filter ScjWin11UI.exe   | Where-Object FullName -Match "\\Release\\" | Select-Object -First 1
+          $launch = Get-ChildItem -Recurse -Filter ScjLauncher.exe  | Where-Object FullName -Match "\\Release\\" | Select-Object -First 1
+          $uninst = Get-ChildItem -Recurse -Filter ScjUninstall.exe | Where-Object FullName -Match "\\Release\\" | Select-Object -First 1
+
+          if (-not $engine) { throw "ScjTsfEngine.dll not found (Release|x64). Check Engine build output." }
+          if (-not $ui)     { throw "ScjWin11UI.exe not found. Check CandidateUI build output." }
+          if (-not $launch) { throw "ScjLauncher.exe not found. Check Launcher build output." }
+          if (-not $uninst) { throw "ScjUninstall.exe not found. Check Uninstaller build output." }
+
+          Copy-Item $engine.FullName dist\ -Force
+          Copy-Item $ui.FullName     dist\ -Force
+          Copy-Item $launch.FullName dist\ -Force
+          Copy-Item $uninst.FullName dist\ -Force
+
+          # Optional: include cin table if it exists in repo
+          if (Test-Path "Engine/data/scj6.cin") { Copy-Item "Engine/data/scj6.cin" dist\ -Force }
+
+          # simple readme
+          @"
+          dist contains:
+            ScjLauncher.exe
+            ScjUninstall.exe
+            ScjTsfEngine.dll
+            ScjWin11UI.exe
+            scj6.cin (optional)
+          Run ScjLauncher.exe -> Install + Start UI
+          "@ | Out-File -Encoding utf8 dist\README.txt
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scj-dist
+          path: dist
