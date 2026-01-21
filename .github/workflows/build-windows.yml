@@ -1,30 +1,91 @@
-- name: Build CandidateUI (diag + binlog)
-  shell: pwsh
-  run: |
-    dotnet --info
-    dotnet build CandidateUI/ScjWin11UI.csproj -c Release -v diag -bl:winui.binlog
+name: build-windows-dist
 
-- name: Dump XAML compiler outputs if present
-  if: failure()
-  shell: pwsh
-  run: |
-    $p = "CandidateUI\obj\Release\net8.0-windows10.0.19041.0"
-    Write-Host "Listing $p"
-    if (Test-Path $p) { Get-ChildItem $p -Recurse | Select-Object FullName | Out-Host } else { Write-Host "No obj folder found" }
-    $out = Join-Path $p "output.json"
-    if (Test-Path $out) {
-      Write-Host "==== output.json (last 200 lines) ===="
-      Get-Content $out -Tail 200 | Out-Host
-    } else {
-      Write-Host "output.json not found"
-    }
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
 
-- name: Upload binlog
-  if: always()
-  uses: actions/upload-artifact@v4
-  with:
-    name: winui-build-logs
-    path: |
-      winui.binlog
-      CandidateUI/obj/**/output.json
-      CandidateUI/obj/**/input.json
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # （可選）確保 MSBuild 可用（windows-latest 通常已內建）
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build CandidateUI (diag + binlog)
+        shell: pwsh
+        run: |
+          dotnet --info
+          dotnet build CandidateUI/ScjWin11UI.csproj -c Release -v diag -bl:winui.binlog
+
+      - name: Dump XAML compiler outputs if present
+        if: failure()
+        shell: pwsh
+        run: |
+          $p = "CandidateUI\obj\Release\net8.0-windows10.0.19041.0"
+          Write-Host "Listing $p"
+          if (Test-Path $p) { Get-ChildItem $p -Recurse | Select-Object FullName | Out-Host } else { Write-Host "No obj folder found" }
+          $out = Join-Path $p "output.json"
+          if (Test-Path $out) {
+            Write-Host "==== output.json (last 200 lines) ===="
+            Get-Content $out -Tail 200 | Out-Host
+          } else {
+            Write-Host "output.json not found"
+          }
+
+      - name: Upload binlog
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winui-build-logs
+          path: |
+            winui.binlog
+            CandidateUI/obj/**/output.json
+            CandidateUI/obj/**/input.json
+
+      - name: Build Launcher
+        shell: pwsh
+        run: dotnet build Launcher/ScjLauncher.csproj -c Release
+
+      - name: Build Uninstaller
+        shell: pwsh
+        run: dotnet build Uninstaller/ScjUninstall.csproj -c Release
+
+      - name: Build TSF Engine (MSBuild)
+        shell: pwsh
+        run: msbuild Engine/ScjTsfEngine/ScjTsfEngine.vcxproj /p:Configuration=Release /p:Platform=x64
+
+      - name: Pack dist
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+
+          # 依你的實際輸出路徑調整（下面是常見路徑）
+          Copy-Item Engine\ScjTsfEngine\x64\Release\ScjTsfEngine.dll dist\ -Force
+          Copy-Item Launcher\bin\Release\net8.0-windows\ScjLauncher.exe dist\ -Force
+          Copy-Item Uninstaller\bin\Release\net8.0-windows\ScjUninstall.exe dist\ -Force
+
+          # WinUI 3 輸出路徑可能因 TFM 不同而變動：這裡用搜尋最穩
+          $ui = Get-ChildItem -Path CandidateUI\bin\Release -Recurse -Filter ScjWin11UI.exe | Select-Object -First 1
+          if (-not $ui) { throw "ScjWin11UI.exe not found under CandidateUI\bin\Release" }
+          Copy-Item $ui.FullName dist\ -Force
+
+          if (Test-Path Engine\data\scj6.cin) {
+            Copy-Item Engine\data\scj6.cin dist\ -Force
+          }
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scj-dist
+          path: dist
