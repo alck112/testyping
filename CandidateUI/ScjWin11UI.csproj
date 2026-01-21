@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- WinUI 3 (Windows App SDK) -->
+    <UseWinUI>true</UseWinUI>
+
+    <!-- Unpackaged: easier for IME companion process -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+
+    <AssemblyName>ScjWin11UI</AssemblyName>
+    <RootNamespace>ScjWin11UI</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Latest stable at the time of writing (2026-01-13): 1.8.4 (1.8.260101001) -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260101001" />
+  </ItemGroup>
+
+</Project>
