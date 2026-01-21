@@ -2,19 +2,21 @@ name: build-windows-dist
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: 8.0.x
 
       - name: Build Candidate UI (WinUI 3)
         run: dotnet build CandidateUI/ScjWin11UI.csproj -c Release -v minimal
@@ -36,12 +38,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
 
-          function Pick($filter) {
-            $c = Get-ChildItem -Recurse -Filter $filter -ErrorAction SilentlyContinue |
-                 Where-Object { $_.FullName -match "\\Release\\" -or $_.FullName -match "\\bin\\Release\\" } |
-                 Sort-Object FullName
-            if (-not $c) { throw "Missing: $filter" }
-            return ($c | Select-Object -Last 1).FullName
+          function Pick($pattern) {
+            $items = Get-ChildItem -Recurse -Filter $pattern -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match "\\Release\\" -or $_.FullName -match "\\bin\\Release\\" } |
+              Sort-Object FullName
+            if (-not $items) { throw "Missing output: $pattern" }
+            return ($items | Select-Object -Last 1).FullName
           }
 
           Copy-Item (Pick "ScjWin11UI.exe")   dist\ -Force
@@ -49,26 +51,14 @@ jobs:
           Copy-Item (Pick "ScjUninstall.exe") dist\ -Force
           Copy-Item (Pick "ScjTsfEngine.dll") dist\ -Force
 
-          Copy-Item Engine\data\scj6.cin dist\ -Force
-          if (Test-Path PORTABLE_README.txt) { Copy-Item PORTABLE_README.txt dist\ -Force }
+          Copy-Item "Engine\data\scj6.cin" dist\ -Force
+          if (Test-Path "PORTABLE_README.txt") { Copy-Item "PORTABLE_README.txt" dist\ -Force }
 
-          @"
-dist contains:
-- ScjLauncher.exe (Install + auto-start UI)
-- ScjUninstall.exe
-- ScjWin11UI.exe
-- ScjTsfEngine.dll
-- scj6.cin
-
-Usage:
-1) Run ScjLauncher.exe -> Install + Start UI
-2) Settings -> add keyboard 快倉 (SCJ) - Prototype
-3) Type a-z, press 1-9 or Space/Enter to commit candidates.
-"@ | Out-File -Encoding utf8 dist\README.txt
-
+          "Built by GitHub Actions" | Out-File -Encoding utf8 dist\README.txt
           Get-ChildItem dist | Format-Table Name, Length
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
         with:
           name: scj-dist
           path: dist
